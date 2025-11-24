@@ -37,21 +37,34 @@ export default async function handler(req, res) {
     const targetUrl = new URL(url);
 
     // 4. 构建转发请求的选项
+    // 提取 headers，剔除 host 以便重新设置
+    const { host, ...clientHeaders } = req.headers;
+
     const options = {
       method: req.method,
       headers: {
-        ...req.headers,
-        // 覆盖 Host 头部，避免目标服务器拒绝
+        // 设置默认 User-Agent，防止部分 API (如 GitHub) 因为没有 UA 而拒绝请求
+        'User-Agent': 'Mozilla/5.0 (Vercel-Proxy/1.0)',
+        ...clientHeaders, // 客户端原本的 headers 优先级更高，会覆盖上面的默认值
+        // 覆盖 Host 头部，确保指向目标服务器
         host: targetUrl.host, 
       },
     };
 
     // 移除 Vercel 自动添加的一些干扰性头部或不需要转发的头部
+    // 注意：node-fetch/fetch 会自动根据 URL 处理 host，所以这里如果不删可能会有问题，
+    // 但上面我们显式设置了 host，通常是覆盖。为了保险，我们按照 fetch 标准，
+    // 让 fetch 自己根据 URL 生成 host，或者显式保留为 targetUrl.host。
+    // 最安全的做法是：不要在 headers 里传 host，让 fetch 自动处理。
     delete options.headers['host'];
+    
+    // 清理 Vercel 特有头部
     delete options.headers['connection'];
     delete options.headers['x-forwarded-for'];
     delete options.headers['x-vercel-deployment-url'];
     delete options.headers['x-vercel-forwarded-for'];
+    delete options.headers['x-vercel-ip-timezone'];
+    delete options.headers['x-vercel-proxied-for'];
 
     // 如果有请求体 (POST/PUT等)，且不是 GET/HEAD，则转发 body
     if (req.method !== 'GET' && req.method !== 'HEAD' && req.body) {
