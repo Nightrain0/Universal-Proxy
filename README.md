@@ -1,119 +1,88 @@
-# 🌏 Universal Proxy (Vercel Edition)
+# ⚡️ Universal Proxy (Edge Edition)
 
-一个基于 Vercel Serverless Functions 构建的轻量级、零依赖通用 HTTP 代理。
+一个基于 **Vercel Edge Runtime** 构建的高性能通用 API 代理。
 
-它主要用于解决前端开发中的 **CORS 跨域问题**，或者作为简单的 API 中转服务。内置了智能的链接重写功能，支持浏览简单的静态网页，并针对 Vercel 环境进行了深度优化。
+相比传统的 Node.js 版代理，Edge 版本启动速度更快（冷启动几乎为零），延迟更低，并且专门针对 **API 转发**、**流式传输 (SSE/Stream)** 和 **复杂参数透传** 进行了深度优化。
 
-## ✨ 主要特性
+## ✨ 核心特性
 
-  * **⚡️ 零依赖架构**：基于 Node.js 原生 `fetch` API，无需 `node_modules`，部署速度极快。
-  * **🔓 彻底解决 CORS**：自动添加 `Access-Control-Allow-Origin: *` 等头信息，允许任何前端项目直接调用。
-  * **🔄 智能路由重写**：
-      * 支持通过参数调用：`/api/index?url=...`
-      * 支持路径透传（伪静态）：`/proxy/https://...` (配置于 `vercel.json`)
-  * **🔗 链接自动修正**：智能识别并替换 HTML 中的 `href`、`src` 和 `action`，确保通过代理访问网页时跳转不中断。
-  * **🛡 重定向跟踪**：自动处理 301/302 重定向，并在代理内部保持会话。
-  * **🚀 高兼容性**：支持 GET, POST, PUT, DELETE 等全方法及 Body/Header 转发。
+  * **⚡️ Edge Runtime 驱动**：运行在全球边缘节点，基于 Web Standard API，速度极快。
+  * **🔧 参数完美透传**：修复了传统代理中 URL 参数丢失的问题（例如 `&key=xxx` 或 `?alt=sse`），完美支持 OpenAI 等需要复杂 Query 参数的接口。
+  * **🔓 自动 CORS 处理**：自动添加跨域头，允许前端项目直接调用任何第三方 API。
+  * **🌊 流式响应支持**：直接透传 `response.body`，完美支持 ChatGPT 类 AI 接口的打字机效果。
+  * **🛡 隐私净化**：自动移除 `x-forwarded-for`、`x-real-ip` 等特征头，隐藏真实客户端 IP。
+  * **📍 智能重定向**：自动处理 301/302 跳转，并修正 `Location` 头以保持代理路径。
 
-## 🚀 快速部署
+## 🚀 部署指南
 
-### 方法一：一键部署 (推荐)
+### 方法一：一键部署
 
-你需要拥有一个 Vercel 账号。
+1.  Fork 本仓库。
+2.  在 Vercel 中导入项目。
+3.  **无需特殊配置**：代码中已指定 `runtime: 'edge'`，Vercel 会自动识别。
+4.  点击 **Deploy**。
 
-1.  Fork 本仓库到你的 GitHub。
-2.  在 Vercel Dashboard 中点击 **"Add New Project"**。
-3.  导入该仓库。
-4.  **⚠️ 关键设置**：在 `Settings` -\> `General` -\> `Node.js Version` 中，**必须选择 18.x 或 20.x**（因为代码依赖原生 `fetch`）。
-5.  点击 **Deploy**。
-
-### 方法二：手动上传
-
-使用 Vercel CLI 部署：
+### 方法二：手动部署
 
 ```bash
 npm i -g vercel
-vercel login
 vercel deploy --prod
 ```
 
-## 📖 使用指南
+## 📖 使用方法
 
-假设你的 Vercel 项目域名为 `https://your-proxy.vercel.app`。
+假设你的域名是 `https://proxy.your-domain.com`。
 
-### 1\. 基础用法 (API 代理)
+### 1\. 通用 API 代理
 
-最适合用于前端请求第三方 API，解决跨域问题。
+支持 GET, POST, PUT, DELETE 等所有方法。
 
-**URL 参数模式：**
-
-```http
-GET https://your-proxy.vercel.app/api/index?url=https://api.github.com/users/vercel
-```
-
-**路径模式 (更简洁)：**
+**方式 A：URL 参数模式 (推荐)**
 
 ```http
-GET https://your-proxy.vercel.app/proxy/https://api.github.com/users/vercel
+GET https://proxy.your-domain.com/api/index?url=https://api.openai.com/v1/chat/completions
 ```
 
-### 2\. 前端代码调用示例
+**方式 B：路径透传模式**
+*(需要在 `vercel.json` 中配置 rewrite)*
 
-在你的 Vue/React/原生 JS 项目中：
+```http
+GET https://proxy.your-domain.com/proxy/https://api.github.com/users/vercel
+```
+
+### 2\. 前端调用示例 (JS/TS)
 
 ```javascript
-const proxyBase = "https://your-proxy.vercel.app/api/index";
-const targetUrl = "https://api.openai.com/v1/models";
+const proxyUrl = "https://proxy.your-domain.com/api/index";
+const target = "https://api.openai.com/v1/chat/completions";
 
-// 自动转发 Header 和 Body
-fetch(`${proxyBase}?url=${encodeURIComponent(targetUrl)}`, {
-    method: 'GET',
+// 代理会自动处理 ?url= 后面的参数拼接
+fetch(`${proxyUrl}?url=${encodeURIComponent(target)}`, {
+    method: "POST",
     headers: {
-        'Authorization': 'Bearer sk-your-token...', // 这里的 Header 会被代理转发给目标
-        'Content-Type': 'application/json'
-    }
+        "Authorization": "Bearer sk-xxxx",
+        "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ model: "gpt-3.5-turbo", messages: [...] })
 })
-.then(response => response.json())
-.then(data => console.log(data))
-.catch(err => console.error(err));
+.then(res => res.json())
+.then(console.log);
 ```
 
-### 3\. 在线测试工具
+## ❓ 常见问题
 
-部署完成后，访问你的域名根目录（例如 `https://your-proxy.vercel.app/`），即可看到内置的测试界面。你可以在这里输入 URL 测试代理是否正常工作。
+**Q: 这个版本能用来浏览网页吗？**
+**A:** 可以，但不推荐。代码主要针对 **API 数据** 进行了优化。虽然支持返回 HTML，但去除了复杂的网页链接重写逻辑，以换取更高的处理速度。如果用来加载大型网站，可能会出现部分静态资源无法加载的情况。
 
-## ❓ 常见问题 (FAQ)
+**Q: 为什么选择 Edge Runtime？**
+**A:** 1. **更便宜**：Vercel Edge 的计费模式通常对轻量级代理更友好。
+2\. **更快**：没有 Node.js 繁重的冷启动过程。
+3\. **更强**：原生支持 Web Streams API，处理 AI 流式响应更稳定。
 
-**Q: 为什么访问 IP 查询网站显示的不是我的真实 IP？**
-**A:** 代理工作在服务端。当你通过代理访问 `httpbin.org/ip` 时，目标服务器看到的是 **Vercel 服务器的 IP**（通常位于美国），这正是代理的作用之一。
+## 📂 目录结构
 
-**Q: 为什么 YouTube、Twitter 或大型视频网站无法正常加载？**
-**A:** 本项目主要针对 **API 接口** 和 **简单的静态网页**。
-大型网站（SPA）依赖复杂的 JavaScript 动态加载、WebSocket 或特定的流媒体协议。本项目的正则替换逻辑只能处理基础的 HTML 链接，无法代理复杂的动态资源请求。
+  * `api/index.js`: 核心 Edge Function 代码。
+  * `public/index.html`: 简单的在线测试工具。
+  * `vercel.json`: 路由配置。
 
-**Q: 部署后报错 500 或 `ReferenceError: fetch is not defined`？**
-**A:** 请检查 Vercel 后台的 **Node.js Version**。必须设置为 **18.x** 或更高版本，因为低版本 Node.js 不支持原生 `fetch` API。
-
-## 📂 项目结构
-
-```text
-.
-├── api
-│   └── index.js      # 核心代理逻辑 (Serverless Function)
-├── public
-│   └── index.html    # 在线测试与演示页面
-├── vercel.json       # Vercel 路由重写配置 (/proxy/* -> /api/index)
-└── README.md         # 说明文档
-```
-
-## ⚠️ 免责声明
-
-本项目仅供技术学习、开发测试及个人 API 调试使用。
-
-  * 请勿用于非法用途。
-  * 请勿用于大规模内容分发或绕过付费墙。
-  * Vercel 免费版有流量和执行时长限制，滥用可能导致账户被封禁。
-
-## 📄 License
-
-MIT
+-----
