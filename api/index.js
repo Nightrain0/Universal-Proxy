@@ -4,6 +4,7 @@
  * 1. 使用 module.exports 替代 export default，确保在所有 Vercel 环境下兼容。
  * 2. 增加了全局错误捕获，防止函数直接崩溃。
  * 3. 优化了 Header 的处理逻辑。
+ * 4. 新增: 支持 x-goog-api-key 转发 (适配 Gemini)。
  */
 
 module.exports = async (req, res) => {
@@ -15,7 +16,7 @@ module.exports = async (req, res) => {
     res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
     res.setHeader(
       'Access-Control-Allow-Headers',
-      'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization'
+      'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization, x-goog-api-key'
     );
 
     if (req.method === 'OPTIONS') {
@@ -49,6 +50,9 @@ module.exports = async (req, res) => {
     if (req.headers['authorization']) headers['Authorization'] = req.headers['authorization'];
     if (req.headers['content-type']) headers['Content-Type'] = req.headers['content-type'];
     if (req.headers['accept']) headers['Accept'] = req.headers['accept'];
+    
+    // ✨ 新增：转发 Google API Key Header (适配 Gemini)
+    if (req.headers['x-goog-api-key']) headers['x-goog-api-key'] = req.headers['x-goog-api-key'];
 
     const fetchOptions = {
       method: req.method,
