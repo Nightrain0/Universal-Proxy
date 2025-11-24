@@ -1,13 +1,13 @@
 /**
- * Vercel Serverless Function - 通用代理
- * * 使用方法:
- * GET /api?url=https://api.example.com/data
- * POST /api?url=https://api.example.com/submit (Body会被转发)
+ * Vercel Serverless Function - 智能网页代理
+ * 功能：
+ * 1. 支持跨域 (CORS)
+ * 2. 自动重写 HTML 中的相对路径 (href, src, action)
+ * 3. 自动重写 3xx 重定向跳转
  */
 
 export default async function handler(req, res) {
-  // 1. 设置 CORS 头部，允许跨域访问
-  // 这允许你在本地开发环境或其他域名下调用此代理
+  // --- 1. CORS 配置 (保持不变) ---
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
@@ -16,94 +16,120 @@ export default async function handler(req, res) {
     'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization'
   );
 
-  // 2. 处理 OPTIONS 预检请求 (浏览器跨域检查)
   if (req.method === 'OPTIONS') {
     res.status(200).end();
     return;
   }
 
-  // 3. 获取目标 URL
+  // --- 2. 参数获取 ---
   const { url } = req.query;
 
   if (!url) {
-    return res.status(400).json({ 
-      error: '缺少 url 参数', 
-      usage: '/api?url=https://target-url.com' 
-    });
+    return res.status(400).send(`
+      <style>body{font-family:sans-serif;padding:2rem;text-align:center;color:#333}</style>
+      <h1>Vercel Proxy 运行正常</h1>
+      <p>请在 URL 参数中提供目标地址。</p>
+      <code>/api/index?url=https://www.google.com</code>
+    `);
   }
 
   try {
-    // 验证 URL 格式
     const targetUrl = new URL(url);
-
-    // 4. 构建转发请求的选项
-    // 提取 headers，剔除 host 以便重新设置
-    const { host, ...clientHeaders } = req.headers;
-
-    const options = {
+    
+    // 构造请求头
+    const headers = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    };
+    
+    // 转发请求体 (如果是 POST/PUT)
+    const fetchOptions = {
       method: req.method,
-      headers: {
-        // 设置默认 User-Agent，防止部分 API (如 GitHub) 因为没有 UA 而拒绝请求
-        'User-Agent': 'Mozilla/5.0 (Vercel-Proxy/1.0)',
-        ...clientHeaders, // 客户端原本的 headers 优先级更高，会覆盖上面的默认值
-        // 覆盖 Host 头部，确保指向目标服务器
-        host: targetUrl.host, 
-      },
+      headers: headers,
+      redirect: 'manual', // 禁止自动跟随重定向，我们需要手动修改 Location
     };
 
-    // 移除 Vercel 自动添加的一些干扰性头部或不需要转发的头部
-    // 注意：node-fetch/fetch 会自动根据 URL 处理 host，所以这里如果不删可能会有问题，
-    // 但上面我们显式设置了 host，通常是覆盖。为了保险，我们按照 fetch 标准，
-    // 让 fetch 自己根据 URL 生成 host，或者显式保留为 targetUrl.host。
-    // 最安全的做法是：不要在 headers 里传 host，让 fetch 自动处理。
-    delete options.headers['host'];
-    
-    // 清理 Vercel 特有头部
-    delete options.headers['connection'];
-    delete options.headers['x-forwarded-for'];
-    delete options.headers['x-vercel-deployment-url'];
-    delete options.headers['x-vercel-forwarded-for'];
-    delete options.headers['x-vercel-ip-timezone'];
-    delete options.headers['x-vercel-proxied-for'];
-
-    // 如果有请求体 (POST/PUT等)，且不是 GET/HEAD，则转发 body
     if (req.method !== 'GET' && req.method !== 'HEAD' && req.body) {
-      // Vercel 解析 body 为对象，fetch 需要字符串或 Buffer
-      // 如果 header 是 json，stringify；否则直接传
-      const contentType = req.headers['content-type'] || '';
-      if (contentType.includes('application/json')) {
-        options.body = JSON.stringify(req.body);
-      } else {
-        options.body = req.body;
+        const contentType = req.headers['content-type'] || '';
+        fetchOptions.headers['Content-Type'] = contentType;
+        fetchOptions.body = typeof req.body === 'object' ? JSON.stringify(req.body) : req.body;
+    }
+
+    // --- 3. 发起请求 ---
+    const response = await fetch(targetUrl.toString(), fetchOptions);
+
+    // --- 4. 处理重定向 (301, 302, 303, 307, 308) ---
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      const location = response.headers.get('location');
+      if (location) {
+        // 将重定向的目标地址也包裹在代理中
+        const absoluteRedirectUrl = new URL(location, targetUrl).toString();
+        // 获取当前代理的根路径 (根据请求头推断)
+        const host = req.headers['x-forwarded-host'] || req.headers['host'];
+        const protocol = req.headers['x-forwarded-proto'] || 'https';
+        const proxyBase = `${protocol}://${host}/api/index?url=`;
+        
+        res.setHeader('Location', proxyBase + encodeURIComponent(absoluteRedirectUrl));
+        res.status(response.status).end();
+        return;
       }
     }
 
-    // 5. 发起请求到目标服务器
-    const response = await fetch(targetUrl.toString(), options);
+    // --- 5. 处理响应 ---
+    // 转发 content-type
+    const contentType = response.headers.get('content-type');
+    if (contentType) res.setHeader('Content-Type', contentType);
 
-    // 6. 处理响应
-    // 将目标服务器的响应头转发回客户端
-    const responseHeaders = {};
-    response.headers.forEach((value, key) => {
-      // 避免跨域问题，部分头部可能需要过滤，这里暂且全量转发
-      // 但通常 Transfer-Encoding 和 Content-Encoding 需要小心
-      if (key !== 'content-encoding' && key !== 'transfer-encoding') {
-         res.setHeader(key, value);
-      }
-    });
+    // 如果是 HTML 页面，需要重写里面的链接
+    if (contentType && contentType.includes('text/html')) {
+      const htmlText = await response.text();
+      
+      // 获取当前代理的基础 URL，用于构建重写后的链接
+      // 例如: https://my-app.vercel.app/api/index?url=
+      const host = req.headers['x-forwarded-host'] || req.headers['host'];
+      const protocol = req.headers['x-forwarded-proto'] || 'https';
+      const proxyUrlBase = `${protocol}://${host}${req.url.split('?')[0]}?url=`;
 
-    // 读取响应内容
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+      // 定义替换函数：将相对路径转为绝对路径，并套上代理外壳
+      const rewriteUrl = (matchedAttribute, rawUrl) => {
+        try {
+          // 忽略已经是代理过的链接、空链接、以及特殊的协议 (data:, javascript:, #, mailto:)
+          if (!rawUrl || rawUrl.startsWith(proxyUrlBase) || rawUrl.startsWith('#') || rawUrl.startsWith('data:') || rawUrl.startsWith('javascript:') || rawUrl.startsWith('mailto:')) {
+            return `${matchedAttribute}="${rawUrl}"`;
+          }
 
-    // 发送响应状态码和内容
-    res.status(response.status).send(buffer);
+          // 将相对路径解析为绝对路径 (基于 targetUrl)
+          const absoluteUrl = new URL(rawUrl, targetUrl).toString();
+          
+          // 返回编码后的代理链接
+          return `${matchedAttribute}="${proxyUrlBase}${encodeURIComponent(absoluteUrl)}"`;
+        } catch (e) {
+          return `${matchedAttribute}="${rawUrl}"`;
+        }
+      };
+
+      // 使用正则替换 href, src, action 属性
+      // 注意：这种正则替换比较粗暴，对于复杂 JS 动态加载的资源可能无效
+      const newHtml = htmlText
+        .replace(/(href|src|action)=["']([^"']+)["']/g, (match, attr, url) => rewriteUrl(attr, url))
+        // 尝试修复 CSS 中的 url(...)
+        .replace(/url\((['"]?)([^'")]+)\1\)/g, (match, quote, url) => {
+            try {
+                 if (url.startsWith('data:') || url.startsWith('#')) return match;
+                 const absoluteUrl = new URL(url, targetUrl).toString();
+                 return `url(${quote}${proxyUrlBase}${encodeURIComponent(absoluteUrl)}${quote})`;
+            } catch(e) { return match; }
+        });
+
+      res.status(response.status).send(newHtml);
+
+    } else {
+      // 如果不是 HTML (是图片、JS、JSON 等)，直接转发二进制数据
+      const buffer = await response.arrayBuffer();
+      res.status(response.status).send(Buffer.from(buffer));
+    }
 
   } catch (error) {
-    console.error('Proxy Error:', error);
-    res.status(500).json({ 
-      error: '代理请求失败', 
-      details: error.message 
-    });
+    console.error(error);
+    res.status(500).json({ error: 'Proxy Request Failed', message: error.message });
   }
 }
