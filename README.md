@@ -1,71 +1,119 @@
-🌏 Universal Proxy (Vercel Edition)
+# 🌏 Universal Proxy (Vercel Edition)
+
 一个基于 Vercel Serverless Functions 构建的轻量级、零依赖通用 HTTP 代理。
-它主要用于解决前端开发中的 CORS 跨域问题，或者作为简单的 API 中转服务。支持基本的网页链接重写，可浏览简单的静态网页。
-✨ 主要特性
-⚡️ 零依赖：基于 Node.js 原生 fetch API，无需安装 node_modules，秒级部署。
-🔓 CORS 解锁：自动处理跨域头（Access-Control-Allow-Origin），允许任何前端项目调用。
-🔗 智能重写：尝试自动替换 HTML 中的 href 和 src 链接，保持浏览体验。
-🔄 全方法支持：支持 GET, POST, PUT, DELETE 等 HTTP 方法及 Body 转发。
-🛡 隐私保护：不做日志记录，Serverless 阅后即焚。
-🚀 快速开始
-1. 部署到 Vercel
-你不需要任何服务器，只需要一个 Vercel 账号。
-Fork/Clone 本项目到你的 GitHub。
-登录 Vercel Dashboard。
-点击 "Add New..." -> "Project"。
-导入你刚才的 GitHub 仓库。
-重要设置：在 Settings -> General 中，确保 Node.js Version 设置为 18.x 或更高（因为代码使用了原生的 fetch）。
-点击 Deploy。
-2. 使用方法
-假设你的 Vercel 域名为 https://your-proxy.vercel.app。
-基础用法 (API 代理)
-直接在 URL 参数中拼接目标地址：
+
+它主要用于解决前端开发中的 **CORS 跨域问题**，或者作为简单的 API 中转服务。内置了智能的链接重写功能，支持浏览简单的静态网页，并针对 Vercel 环境进行了深度优化。
+
+## ✨ 主要特性
+
+  * **⚡️ 零依赖架构**：基于 Node.js 原生 `fetch` API，无需 `node_modules`，部署速度极快。
+  * **🔓 彻底解决 CORS**：自动添加 `Access-Control-Allow-Origin: *` 等头信息，允许任何前端项目直接调用。
+  * **🔄 智能路由重写**：
+      * 支持通过参数调用：`/api/index?url=...`
+      * 支持路径透传（伪静态）：`/proxy/https://...` (配置于 `vercel.json`)
+  * **🔗 链接自动修正**：智能识别并替换 HTML 中的 `href`、`src` 和 `action`，确保通过代理访问网页时跳转不中断。
+  * **🛡 重定向跟踪**：自动处理 301/302 重定向，并在代理内部保持会话。
+  * **🚀 高兼容性**：支持 GET, POST, PUT, DELETE 等全方法及 Body/Header 转发。
+
+## 🚀 快速部署
+
+### 方法一：一键部署 (推荐)
+
+你需要拥有一个 Vercel 账号。
+
+1.  Fork 本仓库到你的 GitHub。
+2.  在 Vercel Dashboard 中点击 **"Add New Project"**。
+3.  导入该仓库。
+4.  **⚠️ 关键设置**：在 `Settings` -\> `General` -\> `Node.js Version` 中，**必须选择 18.x 或 20.x**（因为代码依赖原生 `fetch`）。
+5.  点击 **Deploy**。
+
+### 方法二：手动上传
+
+使用 Vercel CLI 部署：
+
+```bash
+npm i -g vercel
+vercel login
+vercel deploy --prod
+```
+
+## 📖 使用指南
+
+假设你的 Vercel 项目域名为 `https://your-proxy.vercel.app`。
+
+### 1\. 基础用法 (API 代理)
+
+最适合用于前端请求第三方 API，解决跨域问题。
+
+**URL 参数模式：**
+
+```http
 GET https://your-proxy.vercel.app/api/index?url=https://api.github.com/users/vercel
+```
 
+**路径模式 (更简洁)：**
 
-前端调用示例 (JavaScript)
-解决跨域问题：
-const proxy = "https://your-proxy.vercel.app/api/index";
-const target = "https://api.openai.com/v1/models";
+```http
+GET https://your-proxy.vercel.app/proxy/https://api.github.com/users/vercel
+```
 
-fetch(`${proxy}?url=${encodeURIComponent(target)}`, {
+### 2\. 前端代码调用示例
+
+在你的 Vue/React/原生 JS 项目中：
+
+```javascript
+const proxyBase = "https://your-proxy.vercel.app/api/index";
+const targetUrl = "https://api.openai.com/v1/models";
+
+// 自动转发 Header 和 Body
+fetch(`${proxyBase}?url=${encodeURIComponent(targetUrl)}`, {
     method: 'GET',
     headers: {
-        'Authorization': 'Bearer sk-...' // Headers 会被自动转发
+        'Authorization': 'Bearer sk-your-token...', // 这里的 Header 会被代理转发给目标
+        'Content-Type': 'application/json'
     }
 })
-.then(res => res.json())
-.then(data => console.log(data));
+.then(response => response.json())
+.then(data => console.log(data))
+.catch(err => console.error(err));
+```
 
+### 3\. 在线测试工具
 
-❓ 常见问题 (FAQ)
-1. 为什么访问 IP 检测网站 (如 ip.cn) 显示的还是我的真实 IP？
-这是因为现代网页通常包含 Client-side JavaScript。
-代理服务只转发了 HTML 文件。
-网页加载后，其中的 JavaScript 脚本会在你的浏览器中直接运行。
-脚本发起的 AJAX 请求没有经过代理，直接连接了目标服务器。
-如何验证代理是否生效？
-请访问纯 API 接口，例如：
-https://your-proxy.vercel.app/api/index?url=http://httpbin.org/ip
-你会看到返回的是 Vercel 服务器的 IP (通常是美国的 IP)。
-2. 为什么 YouTube/Twitter 无法播放或加载？
-这些是复杂的 SPA (单页应用)，依赖大量的动态资源加载和复杂的 WebSocket/流媒体协议。
-本项目的“链接重写”功能仅通过简单的正则替换 HTML 字符串，无法处理复杂的 JS 动态请求。
-本项目适用于： 纯文本网站、文档站、API 接口、简单的图片资源。
-3. 部署后报错 500 / FUNCTION_INVOCATION_FAILED？
-请检查 Vercel 的 Node.js Version 设置。代码使用了 Node.js 18+ 才支持的原生 fetch API。请在 Vercel 后台将 Node 版本设置为 18.x 或 20.x。
-📂 项目结构
+部署完成后，访问你的域名根目录（例如 `https://your-proxy.vercel.app/`），即可看到内置的测试界面。你可以在这里输入 URL 测试代理是否正常工作。
+
+## ❓ 常见问题 (FAQ)
+
+**Q: 为什么访问 IP 查询网站显示的不是我的真实 IP？**
+**A:** 代理工作在服务端。当你通过代理访问 `httpbin.org/ip` 时，目标服务器看到的是 **Vercel 服务器的 IP**（通常位于美国），这正是代理的作用之一。
+
+**Q: 为什么 YouTube、Twitter 或大型视频网站无法正常加载？**
+**A:** 本项目主要针对 **API 接口** 和 **简单的静态网页**。
+大型网站（SPA）依赖复杂的 JavaScript 动态加载、WebSocket 或特定的流媒体协议。本项目的正则替换逻辑只能处理基础的 HTML 链接，无法代理复杂的动态资源请求。
+
+**Q: 部署后报错 500 或 `ReferenceError: fetch is not defined`？**
+**A:** 请检查 Vercel 后台的 **Node.js Version**。必须设置为 **18.x** 或更高版本，因为低版本 Node.js 不支持原生 `fetch` API。
+
+## 📂 项目结构
+
+```text
 .
 ├── api
 │   └── index.js      # 核心代理逻辑 (Serverless Function)
 ├── public
-│   └── index.html    # 简单的在线测试前端页面
-├── vercel.json       # 路由重写配置
+│   └── index.html    # 在线测试与演示页面
+├── vercel.json       # Vercel 路由重写配置 (/proxy/* -> /api/index)
 └── README.md         # 说明文档
+```
 
+## ⚠️ 免责声明
 
-⚠️ 免责声明
-本项目仅供学习、开发测试及个人 API 中转使用。
-请勿用于非法用途或大规模分发内容。Vercel 免费版有流量和运行时间限制，滥用可能导致封号。
-📄 License
+本项目仅供技术学习、开发测试及个人 API 调试使用。
+
+  * 请勿用于非法用途。
+  * 请勿用于大规模内容分发或绕过付费墙。
+  * Vercel 免费版有流量和执行时长限制，滥用可能导致账户被封禁。
+
+## 📄 License
+
 MIT
